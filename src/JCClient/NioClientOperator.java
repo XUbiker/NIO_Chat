@@ -9,6 +9,8 @@ import java.nio.*;
 import java.nio.channels.*;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class NioClientOperator implements Runnable, JCTimerSupport {
 
@@ -91,6 +93,17 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 		}
 	}
 
+	//**********************************************************************************************
+	private void reconnectToServer (SocketChannel lostChannel) {
+		try {
+			lostChannel.close();
+		} catch (IOException ex1) {
+			System.err.println("Error closing channel");
+		}
+		connectSocketChannel();
+		connection = false;
+	}
+
 
 	//**********************************************************************************************
 	@Override
@@ -131,14 +144,7 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 								boolean finish = channel.finishConnect();
 							} catch (IOException ex) {  // [[ dead connection. start reconnecting ]]
 								System.out.println("connection failed. Reconnecting...");
-								//System.err.println("Error conecting to server");
-								try {
-									channel.close();
-								} catch (IOException ex1) {
-									System.err.println("Error closing channel");
-								}
-								connectSocketChannel();
-								connection = false;
+								reconnectToServer(channel);
 								break;
 							}
 						}
@@ -154,8 +160,9 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 							recieveMessage(channel);
 						} catch (IOException | InterruptedException ex) {
 							System.err.println("Error reading from server");
-							connection = false;
-							return;
+							reconnectToServer(channel);
+							break;
+
 						}
 					} else if (key.isValid() && key.isWritable()) { //........................ write
 						throw (new UnsupportedOperationException());

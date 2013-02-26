@@ -72,6 +72,12 @@ public class NioServerOperator implements Runnable {
 								System.out.println("dead connection");
 								key.cancel();
 							}
+							ClientStruct currClient = new ClientStruct(sChannel);
+							if (!clientsMap.containsKey(currClient.getKey())) {
+								System.out.println("Establishing connect with lost client...");
+								clientsMap.put(currClient.getKey(), currClient);
+								serverManager.addClientsToList(currClient);
+							}
 						} catch (IOException ex) {					// remove channel from selector
 							key.cancel();
 							try {
@@ -132,6 +138,11 @@ public class NioServerOperator implements Runnable {
 		if (message != null) {
 			System.out.println("Got msg: " + message);
 			if (SysMessage.connectMsg.toString().equals(message)) {
+				for (ClientStruct client : clientsMap.values()) { //-- probably it can be refactored
+					if (client.getChannel().equals(sChannel)) {
+						client.newConnectionMessage();
+					}
+				}
 				sendMessage(sChannel, message);
 			} else {
 				sendGlobalChatMessage(sChannel, message);

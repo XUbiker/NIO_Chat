@@ -23,6 +23,15 @@ public class ClientStruct {
 		return key;
 	}
 
+	public static String generateKey (SocketChannel channel) {
+		String result = "";
+		try {
+			result = channel.getRemoteAddress().toString();
+		} catch (IOException ex) {}
+		return result;
+		
+	}
+
 	public SocketChannel getChannel () {
 		return channel;
 	}

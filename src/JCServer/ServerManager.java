@@ -15,7 +15,7 @@ public class ServerManager {
 		list.add(client);
 		frame.addClientsToList(list);
 	}
-	
+
 	public void addClientsToList (ArrayList<ClientStruct> clients) {
 		frame.addClientsToList(clients);
 	}

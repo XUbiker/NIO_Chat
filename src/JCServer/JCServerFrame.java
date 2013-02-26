@@ -24,8 +24,10 @@ public class JCServerFrame extends javax.swing.JFrame implements JCServerAppSupp
 	@Override
 	public void removeClientsFromList (ArrayList<ClientStruct> clients) {
 		for (ClientStruct cl : clients) {
+			System.out.println(cl.getKey());
 			listModel.removeElement(cl);
 		}
+		jList1.repaint();
 	}
 
 	@Override
