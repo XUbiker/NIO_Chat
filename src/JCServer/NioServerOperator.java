@@ -1,7 +1,8 @@
 package JCServer;
 
-import general.MessageTransformer;
-import general.SysMessage;
+import general.Messages.MessageProcesser;
+import general.Messages.MessageType;
+import general.Messages.SysMessage;
 import java.io.*;
 import java.net.*;
 import java.nio.*;
@@ -11,13 +12,13 @@ import java.util.*;
 public class NioServerOperator implements Runnable {
 
 	private int port;
-	private final ByteBuffer buffer = ByteBuffer.allocate(16384);   // buffer for encrypting data
+	private final ByteBuffer buffer = ByteBuffer.allocate(MessageProcesser.getBufferSize());
 	private Map<String, ClientStruct> clientsMap;
 	private ServerManager serverManager;
 	private boolean stopFlag;
 
 	//**********************************************************************************************
-	public NioServerOperator(int port, ServerManager serverManager, Map<String, ClientStruct> clientsMap) {
+	public NioServerOperator (int port, ServerManager serverManager, Map<String, ClientStruct> clientsMap) {
 		this.port = port;
 		this.serverManager = serverManager;
 		this.clientsMap = clientsMap;
@@ -38,7 +39,7 @@ public class NioServerOperator implements Runnable {
 			System.out.println("Listening on port " + port);
 
 			//--------------------------------------------------------------------------------------
-			while (!stopFlag) {											// look for any activities
+			while (!stopFlag) {										// look for any activities
 
 				if (selector.select() == 0) {
 					continue;
@@ -60,36 +61,32 @@ public class NioServerOperator implements Runnable {
 						System.out.println("items in collections: " + clientsMap.values().size());
 						sChannel.configureBlocking(false);
 						sChannel.register(selector, SelectionKey.OP_READ);
-						sendGlobalServerMessage("New user " + sChannel.getRemoteAddress());
+						sendGlobalMessage("New user " + sChannel.getRemoteAddress(), "");
 
 					} else if (key.isReadable()) {
 						//======================================== process existing connection =====
 						SocketChannel sChannel = null;
-						try {
-							sChannel = (SocketChannel) key.channel();
-							boolean active = receiveMessage(sChannel);
-							if (!active) {							// dead connection
-								System.out.println("dead connection");
-								key.cancel();
+						sChannel = (SocketChannel) key.channel();
+						boolean active = processMessageFromClient(sChannel);
+						if (!active) {							// dead connection => remove channel from selector
+							key.cancel();
+							try {
+//								clientsMap.values().remove(sChannel);
+								System.out.println("User " + sChannel.getRemoteAddress() + " left chat");
+								System.out.println("items in collections: " + clientsMap.values().size());
+								sendGlobalMessage("User " + sChannel.getRemoteAddress() + " left chat", "");
+								sChannel.close();
+							} catch (IOException ex2) {
+								System.out.println("Error: " + ex2);
 							}
+							System.out.println("Socket channel closed");
+						} else {
 							ClientStruct currClient = new ClientStruct(sChannel);
 							if (!clientsMap.containsKey(currClient.getKey())) {
 								System.out.println("Establishing connect with lost client...");
 								clientsMap.put(currClient.getKey(), currClient);
 								serverManager.addClientsToList(currClient);
 							}
-						} catch (IOException ex) {					// remove channel from selector
-							key.cancel();
-							try {
-//								clientsMap.values().remove(sChannel);
-								System.out.println("User " + sChannel.getRemoteAddress() + " left chat");
-								System.out.println("items in collections: " + clientsMap.values().size());
-								sendGlobalServerMessage("User " + sChannel.getRemoteAddress() + " left chat");
-								sChannel.close();
-							} catch (IOException ex2) {
-								System.out.println("Error: " + ex2);
-							}
-							System.out.println("Socket channel closed");
 						}
 					}
 				} //--------------------------------------------------------------------------------
@@ -101,54 +98,34 @@ public class NioServerOperator implements Runnable {
 	}
 
 	//**********************************************************************************************
-	private void sendMessage (SocketChannel sChannel, String message) throws IOException {
-		ByteBuffer clientBuf = MessageTransformer.String2ByteBuffer(message);
-		if (clientBuf != null) {
-			sChannel.write(clientBuf);
-		}
-	}
-
-	//**********************************************************************************************
-	private void sendGlobalChatMessage(SocketChannel exciter, String message) throws IOException {
-		System.out.println("Global ");
+	private void sendGlobalMessage(String message, String preffix) {
 		for (ClientStruct client : clientsMap.values()) {
-//			if (!chan.equals(exciter)) {
-				sendMessage(client.getChannel(), exciter.getRemoteAddress() + ":: " + message);
-//			}
+			MessageProcesser.sendMessage(client.getChannel(), preffix, message, MessageType.DATA_MSG);
 		}
 	}
 
 	//**********************************************************************************************
-	private void sendGlobalServerMessage(String message) throws IOException {
-		for (ClientStruct client : clientsMap.values()) {
-			sendMessage(client.getChannel(), "Server:: " + message);
-		}
-	}
-
-	//**********************************************************************************************
-	private boolean receiveMessage (SocketChannel sChannel) throws IOException {
-		buffer.clear();
-		sChannel.read(buffer);
-		buffer.flip();
-		if (buffer.limit() == 0) {
+	private boolean processMessageFromClient(SocketChannel sChannel) {
+		String message = MessageProcesser.readStringFromChannel(sChannel, buffer);
+		if (message == null) {
 			return false;
 		}
-		String message = MessageTransformer.ByteBuffer2String(buffer);
-		buffer.clear();
-		if (message != null) {
-			System.out.println("Got msg: " + message);
-			if (SysMessage.connectMsg.toString().equals(message)) {
-				for (ClientStruct client : clientsMap.values()) { //-- probably it can be refactored
-					if (client.getChannel().equals(sChannel)) {
-						client.newConnectionMessage();
-					}
-				}
-				sendMessage(sChannel, message);
-			} else {
-				sendGlobalChatMessage(sChannel, message);
-			}
-			return true;
+		String exciterAddr = MessageProcesser.getRemoteAddr(sChannel);
+		if (exciterAddr == null) {
+			return false;
 		}
-		return false;
+
+		System.out.println("Got msg: " + message);
+		if (SysMessage.CONNECT_CHAR.toString().equals(message)) {
+			MessageProcesser.sendMessage(sChannel, exciterAddr, message, MessageType.SYS_MSG);
+			for (ClientStruct client : clientsMap.values()) { //-- probably it can be refactored
+				if (client.getChannel().equals(sChannel)) {
+					client.newConnectionMessage();
+				}
+			}
+		} else {
+			sendGlobalMessage(message, exciterAddr + ":: ");
+		}
+		return true;
 	}
 }

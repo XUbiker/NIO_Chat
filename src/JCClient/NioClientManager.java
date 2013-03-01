@@ -1,6 +1,6 @@
 package JCClient;
 
-import general.MessageTransformer;
+import general.Messages.MessageProcesser;
 import general.timer.*;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -25,7 +25,8 @@ public final class NioClientManager implements JCTimerSupport, JCClientFrameSupp
 		input_pipe = Pipe.open();
 		outQueue = new ArrayBlockingQueue<>(1024);
 
-		host = "25.89.110.78";
+//		host = "25.89.110.78";
+		host = "127.0.0.1";
 		//host = "25.95.67.46";
 		clOperator = new NioClientOperator(host, 4444);
 		try {
@@ -44,7 +45,7 @@ public final class NioClientManager implements JCTimerSupport, JCClientFrameSupp
 
 	@Override
 	public void sendMessage(String msg) {
-		ByteBuffer buf = MessageTransformer.String2ByteBuffer(msg);
+		ByteBuffer buf = MessageProcesser.String2ByteBuffer(msg);
 		if (buf != null) {
 			try {
 				input_pipe.sink().write(buf);

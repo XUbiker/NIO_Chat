@@ -48,6 +48,7 @@ public class JCServerFrame extends javax.swing.JFrame implements JCServerAppSupp
         jButton1 = new javax.swing.JButton();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
+        setBounds(new java.awt.Rectangle(400, 400, 0, 0));
 
         jScrollPane1.setViewportView(jList1);
 

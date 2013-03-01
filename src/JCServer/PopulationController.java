@@ -11,6 +11,7 @@ public class PopulationController implements JCTimerSupport {
 	private ArrayList<ClientStruct> clientsToBeDeleted;
 	private ServerManager serverManager;
 
+	//**********************************************************************************************
 	public PopulationController (ServerManager serverManager, Map<String, ClientStruct> clientsMap) {
 		this.serverManager = serverManager;
 		this.clientsMap = clientsMap;
@@ -19,6 +20,7 @@ public class PopulationController implements JCTimerSupport {
 		timer.addTask(500, 2000);
 	}
 
+	//**********************************************************************************************
 	@Override
 	public void timerAction(int timerIdx) {
 		System.out.println("Population controller invoked");

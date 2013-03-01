@@ -1,7 +1,8 @@
 package JCClient;
 
-import general.MessageTransformer;
-import general.SysMessage;
+import general.Messages.MessageProcesser;
+import general.Messages.MessageType;
+import general.Messages.SysMessage;
 import general.timer.*;
 import java.io.*;
 import java.net.*;
@@ -9,13 +10,11 @@ import java.nio.*;
 import java.nio.channels.*;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class NioClientOperator implements Runnable, JCTimerSupport {
 
 	private String host;
-	private int serverPort, bufferSize = 1024;
+	private int serverPort;
 	private ByteBuffer clientBuf, handlerBuf;
 	private Selector selector;
 	private SocketChannel clChannel;
@@ -40,8 +39,8 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 	public NioClientOperator(String host, int serverPort) {
 		this.host = host;
 		this.serverPort = serverPort;
-		clientBuf = ByteBuffer.allocateDirect(bufferSize);
-		handlerBuf = ByteBuffer.allocateDirect(bufferSize);
+		clientBuf = ByteBuffer.allocateDirect(MessageProcesser.getBufferSize());
+		handlerBuf = ByteBuffer.allocateDirect(MessageProcesser.getBufferSize());
 
 		stopFlag = false;
 		connection = false;
@@ -127,12 +126,7 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 
 				if (activeChannel.equals(inChannel)) { //============================ input activity
 					if (connection) {
-						try {
-							String msg = readByteChannel((ReadableByteChannel) key.channel());
-							if (msg != null) {
-								sendMessage(clChannel, msg);
-							}
-						} catch (IOException ex) {
+						if (!processInputActivity((ReadableByteChannel) key.channel())) {
 							System.err.println("Error while processing input activity");
 						}
 					}
@@ -156,13 +150,11 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 						}
 						key.interestOps(SelectionKey.OP_READ);
 					} else if (key.isValid() && key.isReadable()) { //......................... read
-						try {
-							recieveMessage(channel);
-						} catch (IOException | InterruptedException ex) {
+						boolean active = recieveMessageFromServer(channel);
+						if (!active) {
 							System.err.println("Error reading from server");
 							reconnectToServer(channel);
 							break;
-
 						}
 					} else if (key.isValid() && key.isWritable()) { //........................ write
 						throw (new UnsupportedOperationException());
@@ -176,23 +168,27 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 	}
 
 	//**********************************************************************************************
-	private String readByteChannel(ReadableByteChannel channel) throws IOException {
-		handlerBuf.clear();
-		channel.read(handlerBuf);
-		handlerBuf.flip();
-		if (handlerBuf.limit() == 0) {
-			return null;
+	private boolean processInputActivity (ReadableByteChannel channel) {
+		String message = MessageProcesser.readStringFromChannel(channel, handlerBuf);
+		if (message == null) {
+			return false;
 		}
-		String message = MessageTransformer.ByteBuffer2String(handlerBuf);
-		handlerBuf.clear();
-		return message;
+		if (!"".equals(message)) {
+			if (!connection) {
+				return false;
+			}
+			return MessageProcesser.sendMessage(clChannel, "input", message, MessageType.DATA_MSG);
+		}
+		return true;
 	}
 
 	//**********************************************************************************************
-	private void updateDeepConnection(String msg) {
-		try {
-			sendMessage(clChannel, msg);
-		} catch (IOException ex) {}
+	private void updateDeepConnection () {
+		String exciterAddr = MessageProcesser.getLocalAddr(clChannel);
+		if (exciterAddr == null) {
+			return;
+		}
+		MessageProcesser.sendMessage(clChannel, exciterAddr, SysMessage.CONNECT_CHAR.toString(), MessageType.SYS_MSG);
 		if (deepPackCnt > maxConnectPack) {
 			deepConnection = false;
 		} else {
@@ -201,42 +197,27 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 	}
 
 	//**********************************************************************************************
-	private void sendMessage(SocketChannel channel, String message) throws IOException {
+	private boolean recieveMessageFromServer (SocketChannel channel) {
 		if (!connection) {
-			return;
+			return false;
 		}
-		ByteBuffer buf = MessageTransformer.String2ByteBuffer(message);
-		if (buf != null) {
-			channel.write(buf);
-		}
-	}
-
-	//**********************************************************************************************
-	private void recieveMessage(SocketChannel channel) throws IOException, InterruptedException {
-		if (!connection) {
-			return;
-		}
-		clientBuf.clear();
-		channel.read(clientBuf);
-		clientBuf.flip();
-		if (clientBuf.limit() == 0) {
-			return;
-		}
-
-		String message = MessageTransformer.ByteBuffer2String(clientBuf);
-		clientBuf.clear();
+		String message = MessageProcesser.readStringFromChannel(channel, clientBuf);
 		if (message == null) {
-			return;
+			return false;
 		}
-		if (SysMessage.connectMsg.toString().equals(message)) {
+		if (SysMessage.CONNECT_CHAR.toString().equals(message)) {
 			deepPackCnt = 0;
 			deepConnection = true;
 		} else {
 			if (channel.equals(clChannel)) {
-				outQueue.put(message);
-	//			System.out.println(message);
+				try {
+					outQueue.put(message);
+				} catch (InterruptedException ex) {
+					return false;
+				}
 			}
 		}
+		return true;
 	}
 
 	//**********************************************************************************************
@@ -254,8 +235,7 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 	@Override
 	public void timerAction(int timerIdx) {
 		if (connectTimerIdx == timerIdx) {
-			updateDeepConnection(SysMessage.connectMsg.toString());
-//			System.out.println("connected: " + connectedDeep + " " + connectedPackCnt);
+			updateDeepConnection();
 		}
 	}
 }
