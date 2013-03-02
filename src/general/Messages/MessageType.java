@@ -1,16 +1,17 @@
 package general.Messages;
 
 public enum MessageType {
-	SYS_MSG  (0),
-	DATA_MSG (1);
+	SYS_MSG   ('\u0000'),
+	DATA_MSG  ('\u0001'),
+	INPUT_MSG ('\u0002');
 
-	private int value;
+	private Character value;
 
-	private MessageType (int value) {
+	private MessageType (Character value) {
 		this.value = value;
 	}
 
-	public int getInt () {
+	public Character getCharacter () {
 		return this.value;
 	}
 }

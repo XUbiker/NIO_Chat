@@ -1,6 +1,7 @@
 package JCClient;
 
-import general.Messages.MessageProcesser;
+import general.Messages.Message;
+import general.ChannelProcesser;
 import general.Messages.MessageType;
 import general.Messages.SysMessage;
 import general.timer.*;
@@ -28,7 +29,7 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 	private JCTimer connectTimer;
 	private int connectTimerIdx;
 
-	private BlockingQueue<String> outQueue;
+	private BlockingQueue<Message> outQueue;
 
 	//**********************************************************************************************
 	public void setStopFlag (boolean newVal) {
@@ -39,8 +40,8 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 	public NioClientOperator(String host, int serverPort) {
 		this.host = host;
 		this.serverPort = serverPort;
-		clientBuf = ByteBuffer.allocateDirect(MessageProcesser.getBufferSize());
-		handlerBuf = ByteBuffer.allocateDirect(MessageProcesser.getBufferSize());
+		clientBuf = ByteBuffer.allocateDirect(ChannelProcesser.getBufferSize());
+		handlerBuf = ByteBuffer.allocateDirect(ChannelProcesser.getBufferSize());
 
 		stopFlag = false;
 		connection = false;
@@ -54,7 +55,7 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 	}
 
 	//**********************************************************************************************
-	public void attachManager(SelectableChannel inChannel, BlockingQueue<String> outQueue) {
+	public void attachManager(SelectableChannel inChannel, BlockingQueue<Message> outQueue) {
 		this.inChannel = inChannel;
 		this.outQueue = outQueue;
 	}
@@ -169,26 +170,27 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 
 	//**********************************************************************************************
 	private boolean processInputActivity (ReadableByteChannel channel) {
-		String message = MessageProcesser.readStringFromChannel(channel, handlerBuf);
-		if (message == null) {
+		if (!connection) {
 			return false;
 		}
-		if (!"".equals(message)) {
-			if (!connection) {
-				return false;
-			}
-			return MessageProcesser.sendMessage(clChannel, "input", message, MessageType.DATA_MSG);
+		List<Message> messages = ChannelProcesser.receiveMessagesFromChannel(channel, handlerBuf);
+		if (messages == null || messages.isEmpty()) {
+			return false;
+		}
+		for (Message msg : messages) {
+			System.out.println(msg.toString());
+			ChannelProcesser.sendMessageToChannel(clChannel, msg);
 		}
 		return true;
 	}
 
 	//**********************************************************************************************
 	private void updateDeepConnection () {
-		String exciterAddr = MessageProcesser.getLocalAddr(clChannel);
+		String exciterAddr = ChannelProcesser.getLocalAddr(clChannel);
 		if (exciterAddr == null) {
 			return;
 		}
-		MessageProcesser.sendMessage(clChannel, exciterAddr, SysMessage.CONNECT_CHAR.toString(), MessageType.SYS_MSG);
+		ChannelProcesser.sendMessageToChannel(clChannel, new Message(MessageType.SYS_MSG, exciterAddr));
 		if (deepPackCnt > maxConnectPack) {
 			deepConnection = false;
 		} else {
@@ -201,19 +203,22 @@ public class NioClientOperator implements Runnable, JCTimerSupport {
 		if (!connection) {
 			return false;
 		}
-		String message = MessageProcesser.readStringFromChannel(channel, clientBuf);
-		if (message == null) {
+		List<Message> messages = ChannelProcesser.receiveMessagesFromChannel(channel, clientBuf);
+		if (messages == null || messages.isEmpty()) {
 			return false;
 		}
-		if (SysMessage.CONNECT_CHAR.toString().equals(message)) {
-			deepPackCnt = 0;
-			deepConnection = true;
-		} else {
-			if (channel.equals(clChannel)) {
-				try {
-					outQueue.put(message);
-				} catch (InterruptedException ex) {
-					return false;
+		for (Message msg : messages) {
+
+			if (MessageType.SYS_MSG.equals(msg.getType())) {
+				deepPackCnt = 0;
+				deepConnection = true;
+			} else {
+				if (channel.equals(clChannel)) {
+					try {
+						outQueue.put(msg);
+					} catch (InterruptedException ex) {
+						return false;
+					}
 				}
 			}
 		}

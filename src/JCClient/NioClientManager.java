@@ -1,10 +1,14 @@
 package JCClient;
 
-import general.Messages.MessageProcesser;
+import general.Messages.Message;
+import general.ChannelProcesser;
+import general.Messages.MessageType;
 import general.timer.*;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.*;
 
 public final class NioClientManager implements JCTimerSupport, JCClientFrameSupport {
@@ -14,7 +18,7 @@ public final class NioClientManager implements JCTimerSupport, JCClientFrameSupp
 	private JCTimer timer;
 
 	private Pipe input_pipe;
-	private BlockingQueue<String> outQueue;
+	private BlockingQueue<Message> outQueue;
 	private String host;
 
 	private ExecutorService service;
@@ -44,13 +48,9 @@ public final class NioClientManager implements JCTimerSupport, JCClientFrameSupp
 	}
 
 	@Override
-	public void sendMessage(String msg) {
-		ByteBuffer buf = MessageProcesser.String2ByteBuffer(msg);
-		if (buf != null) {
-			try {
-				input_pipe.sink().write(buf);
-			} catch (IOException ex) {}
-		}
+	public void sendMessage(String str) {
+		Message msg = new Message(MessageType.INPUT_MSG, "", str);
+		ChannelProcesser.sendMessageToChannel(input_pipe.sink(), msg);
 	}
 
 	public void attachFrame (JCClientFrame frame) throws IOException {
@@ -77,23 +77,24 @@ public final class NioClientManager implements JCTimerSupport, JCClientFrameSupp
 	}
 
 	private void processReceivedMsg () {
-		String msg = receiveMsg();
-		if (!"".equals(msg)) {
-			frame.addMsg(msg);
+		List<Message> messages = receiveMsg();
+		if (!messages.isEmpty()) {
+			for (Message msg : messages) {
+				frame.addMsg(msg.getExciter() + ":: " + msg.getMessage());
+			}
 		}
 	}
 
 	//**********************************************************************************************
-	private String receiveMsg () {
+	private List<Message> receiveMsg () {
+		ArrayList<Message> messages = new ArrayList<>();
 		try {
-			if (!outQueue.isEmpty()) {
-				return outQueue.take();
+			while (!outQueue.isEmpty()) {
+				messages.add(outQueue.take());
 			}
-			return "";
-			}
-		catch (InterruptedException ex) {
-			return "";
 		}
+		catch (InterruptedException ex) {}
+		return messages;
 	}
 
 	//**********************************************************************************************

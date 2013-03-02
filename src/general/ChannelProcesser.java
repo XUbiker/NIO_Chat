@@ -1,16 +1,19 @@
-package general.Messages;
+package general;
 
+import general.Messages.Message;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
+import java.util.List;
 
-public class MessageProcesser {
+public class ChannelProcesser {
 
 	private final static int bufferSize = 1024;
 	private static ByteBuffer buffer = ByteBuffer.allocateDirect(bufferSize);
@@ -21,7 +24,7 @@ public class MessageProcesser {
 	}
 
 	//**********************************************************************************************
-	public static ByteBuffer String2ByteBuffer(String message) {
+	private static ByteBuffer StringToByteBuffer(String message) {
 		try {
 			//buffer.clear();
 			Charset charset = Charset.forName("UTF-8");
@@ -37,7 +40,7 @@ public class MessageProcesser {
 	}
 
 	//**********************************************************************************************
-	public static String ByteBuffer2String(ByteBuffer buf) {
+	private static String ByteBufferToString(ByteBuffer buf) {
 		try {
 			Charset charset = Charset.forName("UTF-8");
 			CharsetDecoder decoder = charset.newDecoder();
@@ -54,6 +57,7 @@ public class MessageProcesser {
 		}
 	}
 
+	//**********************************************************************************************
 	public static String getRemoteAddr (SocketChannel channel) {
 		String addr;
 		try {
@@ -64,6 +68,7 @@ public class MessageProcesser {
 		return addr;
 	}
 
+	//**********************************************************************************************
 	public static String getLocalAddr (SocketChannel channel) {
 		String addr;
 		try {
@@ -75,36 +80,31 @@ public class MessageProcesser {
 	}
 
 	//**********************************************************************************************
-	public static String readStringFromChannel (ReadableByteChannel sChannel, ByteBuffer buffer) {
-		// reads string from input channel. returns null in case of failure
+	public static List<Message> receiveMessagesFromChannel (ReadableByteChannel channel, ByteBuffer buffer) {
 		try {
 			String message = "";
 			buffer.clear();
-			while (sChannel.read(buffer) > 0) {
-				sChannel.read(buffer);
+			while (channel.read(buffer) > 0) {
+				channel.read(buffer);
 				buffer.flip();
 				if (buffer.limit() == 0) {
 					return null;
 				}
-				message += MessageProcesser.ByteBuffer2String(buffer);
+				message += ChannelProcesser.ByteBufferToString(buffer);
 				buffer.clear();
 			}
-			return message;
+			System.out.println(message);
+			return Message.parseMessages(message);
 		} catch (IOException ex) {
+			System.err.println(ex.toString());
 			return null;
 		}
 	}
 
 	//**********************************************************************************************
-	public static boolean sendMessage(SocketChannel channel, String exciter, String message, MessageType type) {
-		// type == 0 - sys message, type == 0 - data message
-		ByteBuffer buf = null;
-		if (type.equals(MessageType.DATA_MSG)) {
-			buf = MessageProcesser.String2ByteBuffer(SysMessage.START_CHAR +
-					exciter + SysMessage.SEPAR_CHAR + message + SysMessage.END_CHAR);
-		} else if (type.equals(MessageType.SYS_MSG)) {
-			buf = MessageProcesser.String2ByteBuffer(message);
-		}
+	public static boolean sendMessageToChannel (WritableByteChannel channel, Message msg) {
+		ByteBuffer buf;
+		buf = ChannelProcesser.StringToByteBuffer(msg.encode());
 		try {
 			if (buf != null) {
 				channel.write(buf);

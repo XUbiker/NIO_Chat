@@ -1,6 +1,7 @@
 package JCServer;
 
-import general.Messages.MessageProcesser;
+import general.Messages.Message;
+import general.ChannelProcesser;
 import general.Messages.MessageType;
 import general.Messages.SysMessage;
 import java.io.*;
@@ -12,7 +13,7 @@ import java.util.*;
 public class NioServerOperator implements Runnable {
 
 	private int port;
-	private final ByteBuffer buffer = ByteBuffer.allocate(MessageProcesser.getBufferSize());
+	private final ByteBuffer buffer = ByteBuffer.allocate(ChannelProcesser.getBufferSize());
 	private Map<String, ClientStruct> clientsMap;
 	private ServerManager serverManager;
 	private boolean stopFlag;
@@ -61,7 +62,8 @@ public class NioServerOperator implements Runnable {
 						System.out.println("items in collections: " + clientsMap.values().size());
 						sChannel.configureBlocking(false);
 						sChannel.register(selector, SelectionKey.OP_READ);
-						sendGlobalMessage("New user " + sChannel.getRemoteAddress(), "");
+						Message msg = new Message(MessageType.DATA_MSG, "server", "New user " + sChannel.getRemoteAddress());
+						sendGlobalMessage(msg);
 
 					} else if (key.isReadable()) {
 						//======================================== process existing connection =====
@@ -74,7 +76,8 @@ public class NioServerOperator implements Runnable {
 //								clientsMap.values().remove(sChannel);
 								System.out.println("User " + sChannel.getRemoteAddress() + " left chat");
 								System.out.println("items in collections: " + clientsMap.values().size());
-								sendGlobalMessage("User " + sChannel.getRemoteAddress() + " left chat", "");
+								Message msg = new Message(MessageType.DATA_MSG, "server", "User " + sChannel.getRemoteAddress() + " left chat");
+								sendGlobalMessage(msg);
 								sChannel.close();
 							} catch (IOException ex2) {
 								System.out.println("Error: " + ex2);
@@ -98,33 +101,41 @@ public class NioServerOperator implements Runnable {
 	}
 
 	//**********************************************************************************************
-	private void sendGlobalMessage(String message, String preffix) {
+	private void sendGlobalMessage(Message message) {
 		for (ClientStruct client : clientsMap.values()) {
-			MessageProcesser.sendMessage(client.getChannel(), preffix, message, MessageType.DATA_MSG);
+			ChannelProcesser.sendMessageToChannel(client.getChannel(), message);
 		}
 	}
 
 	//**********************************************************************************************
 	private boolean processMessageFromClient(SocketChannel sChannel) {
-		String message = MessageProcesser.readStringFromChannel(sChannel, buffer);
-		if (message == null) {
+		List<Message> messages = ChannelProcesser.receiveMessagesFromChannel(sChannel, buffer);
+		if (messages == null || messages.isEmpty()) {
 			return false;
 		}
-		String exciterAddr = MessageProcesser.getRemoteAddr(sChannel);
+		String exciterAddr = ChannelProcesser.getRemoteAddr(sChannel);
 		if (exciterAddr == null) {
 			return false;
 		}
 
-		System.out.println("Got msg: " + message);
-		if (SysMessage.CONNECT_CHAR.toString().equals(message)) {
-			MessageProcesser.sendMessage(sChannel, exciterAddr, message, MessageType.SYS_MSG);
-			for (ClientStruct client : clientsMap.values()) { //-- probably it can be refactored
-				if (client.getChannel().equals(sChannel)) {
-					client.newConnectionMessage();
+		for (Message msg : messages) {
+			System.out.println("Got msg: " + msg.getMessage());
+			System.out.println(msg.getType());
+			if (MessageType.SYS_MSG.equals(msg.getType())) { //---------------------- system message
+				System.out.println("connection msg");
+				msg.setExciter(exciterAddr);
+				ChannelProcesser.sendMessageToChannel(sChannel, msg);
+				for (ClientStruct client : clientsMap.values()) { //-- probably it can be refactored
+					if (client.getChannel().equals(sChannel)) {
+						client.newConnectionMessage();
+					}
 				}
+			} else if (MessageType.DATA_MSG.equals(msg.getType())) { //---------------- data message
+				sendGlobalMessage(msg);
+			} else if (MessageType.INPUT_MSG.equals(msg.getType())) { //-------------- input message
+				msg.setExciter(exciterAddr);
+				sendGlobalMessage(msg);
 			}
-		} else {
-			sendGlobalMessage(message, exciterAddr + ":: ");
 		}
 		return true;
 	}
